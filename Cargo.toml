@@ -7,3 +7,5 @@ edition = "2021"
 [dependencies]
 thiserror="1.0.32"
 rand="0.8.5"
+csv = "1.1"
+serde = { version = "1", features = ["derive"] }

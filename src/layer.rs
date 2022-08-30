@@ -1,50 +1,77 @@
 use std::fmt;
 
+use rand::Rng;
+
 use crate::{
-  neuron::Neuron,
   activation::{ActivationType},
-  weights::Weight,
+  weights::Weight, loss::{loss_mse, partial_diff_loss},
 };
 
 #[derive(Debug)]
 pub struct Layer {
-  pub neurons: Vec<Neuron>,
   pub activation: ActivationType,
   pub weights: Vec<Weight>
 }
 
 impl fmt::Display for Layer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-      write!(f, "{:?}", self.neurons)
+      write!(f, "{:?}", self.weights)
     }
 }
 
 impl Layer {
-  pub fn perceptron(weights: &Vec<Weight>, n_inp: usize, activation: ActivationType) -> Neuron {
-    let start_neurons: Vec<Neuron> = (0..n_inp).into_iter().map(|_| Neuron::rand_neuron(activation)).collect();
-  
-    let mut vals = vec![];
+  pub fn new(n_inp: usize, activation: ActivationType) -> Layer {
+    let weights: Vec<Weight> = (0..n_inp).into_iter().map(|i| Weight::random_weight(format!("w{}", i))).collect();
 
-    for i in 0..n_inp {
-      let x = start_neurons[i].value;
-      for j in 0..n_inp {
-        vals.push( x * weights[j].value );
-      }
+    Layer {
+      activation,
+      weights
     }
-
-    Neuron::new(vals.into_iter().sum(), activation)
   }
 
-  pub fn new(n_input: usize, n_output: usize, activation: ActivationType) -> Layer {
-    let mut neurons = vec![];
-    let mut weights: Vec<Weight> = vec![];
-    for _ in 0..n_output  {
-        let ws: Vec<Weight> = (0..n_input).into_iter().map(|_| Weight::random_weight()).collect();
-        let neuron = Layer::perceptron(&ws, n_input, activation);
-        weights.extend(&ws);
-        neurons.push(neuron);
+  pub fn layer_output(&self, vals: Vec<f64>) -> f64 {
+    use ActivationType::*;
+    let value = self.weights.iter().enumerate().map(|(i, w)| w.value * vals[i]).sum();
+    match self.activation {
+      Step => if value > 0.5 { 1.0 } else { 0.0 },
+      Sigmoid => ActivationType::sigmoid(value),
+      Tanh => ActivationType::tanh(value)
     }
+  }
 
-    Layer { neurons, activation, weights }
+  pub fn call(weights: &Vec<Weight>, vals: &Vec<f64>, activation: ActivationType) -> f64 {
+    use ActivationType::*;
+    let value = weights.iter().enumerate().map(|(i, w)| w.value * vals[i]).sum();
+    match activation {
+      Step => if value > 0.5 { 1.0 } else { 0.0 },
+      Sigmoid => ActivationType::sigmoid(value),
+      Tanh => ActivationType::tanh(value)
+    }
+  }
+
+  pub fn train_layer(&mut self, values: Vec<Vec<f64>>, answers: &Vec<f64>, lr: f64) {
+    let mut trained: Vec<Weight> = Vec::new();
+    while trained.len() < self.weights.len() {
+      let ri = rand::thread_rng().gen_range(0..self.weights.to_owned().len());
+
+      if !trained.contains(&self.weights[ri].to_owned()) {
+        self.weights[ri] = Weight {
+          value: self.weights[ri].value - lr * partial_diff_loss(
+            &loss_mse,
+            &Layer::call,
+            &self.weights,
+            self.activation,
+            &values,
+            answers,
+            self.weights[ri].name.to_owned(),
+            0.0001
+          ),
+          name: self.weights[ri].name.to_owned()
+        };
+        let error = loss_mse(&Layer::call, &self.weights, self.activation, &values, answers);
+        println!("error: {}", error);
+        trained.push(self.weights[ri].to_owned());
+      }
+    }
   }
 }
