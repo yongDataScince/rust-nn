@@ -2,7 +2,9 @@
 pub enum ActivationType {
   Step,
   Sigmoid,
-  Tanh
+  Tanh,
+  ReLU,
+  Softmax
 }
 
 impl ActivationType {
@@ -16,5 +18,23 @@ impl ActivationType {
   }
   pub fn step(x: f64) -> f64 {
     if x >= 0.5 { 1.0 } else { 0.0 }
+  }
+
+  pub fn relu(x: f64) -> f64 {
+    if x <= 0.0 {
+      return 0.0;
+    } else {
+      return x;
+    }
+  }
+
+  pub fn softmax(y: &Vec<f64>) -> Vec<f64> { 
+    let sum: f64 = y.into_iter().map(|yi| {
+      return 2.71828_f64.powf(*yi); 
+    }).sum();
+
+    y.into_iter().map(|yi| {
+      2.71828_f64.powf(*yi) / sum 
+    }).collect()
   }
 }
