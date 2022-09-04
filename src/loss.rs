@@ -45,6 +45,7 @@ pub fn partial_diff_loss(
 ) -> f64 {
   let all_weights: Vec<Weight> = all_weights.to_owned().iter().map(|w| {
     if w.name == var_name {
+      println!("{}", var_name);
       return Weight {
         value: w.value + eps,
         name: var_name.to_owned()
@@ -60,6 +61,7 @@ pub fn partial_diff_loss(
   let new_in_w: Vec<Weight> = all_weights.to_owned().into_iter().filter(|w| in_weights.contains(w)).collect();
   let new_hid_w: Vec<Weight> = all_weights.to_owned().into_iter().filter(|w| hidden_weights.contains(w)).collect();
   let new_out_w: Vec<Weight> = all_weights.to_owned().into_iter().filter(|w| out_weights.contains(w)).collect();
+
   ( f(
       nn,
       &new_in_w,
@@ -83,6 +85,40 @@ pub fn partial_diff_loss(
     )) / eps
 }
 
+pub fn cross_entropy_loss(
+  nn: &dyn Fn(&Vec<Weight>, &Vec<Weight>, &Vec<Weight>, &Vec<f64>, usize, ActivationType, ActivationType) -> Vec<f64>,
+  in_weights: &Vec<Weight>,
+  hidden_weights: &Vec<Weight>,
+  out_weights: &Vec<Weight>,
+  data_inp: &Vec<Vec<f64>>,
+  x_trues: &Vec<Vec<f64>>,
+  n_hidden: usize,
+  activation: ActivationType,
+  out_activation: ActivationType,
+) -> f64 {
+  let mut sum = 0.0;
+
+  for i in 0..x_trues.len() {
+    let nn_out = nn(
+      in_weights,
+      hidden_weights,
+      out_weights,
+      &data_inp[i],
+      n_hidden,
+      activation,
+      out_activation
+    );
+    println!("{:?}", nn_out);
+
+    let mean: f64 = (x_trues[i].to_owned().into_iter().enumerate().map(|(i, v)| {
+      v * (nn_out[i]).log2() + (1.0 - v) * (1.0 - nn_out[i]).log2()
+    })).sum::<f64>() / x_trues[i].len() as f64;
+
+    sum += mean;
+  }
+  -sum / x_trues.len() as f64
+}
+
 pub fn loss_mse(
   nn: &dyn Fn(&Vec<Weight>, &Vec<Weight>, &Vec<Weight>, &Vec<f64>, usize, ActivationType, ActivationType) -> Vec<f64>,
   in_weights: &Vec<Weight>,
@@ -94,7 +130,6 @@ pub fn loss_mse(
   activation: ActivationType,
   out_activation: ActivationType,
 ) -> f64 {
-
   let mut sum: f64 = 0.0;
   for i in 0..x_trues.len() {
     let nn_out = nn(

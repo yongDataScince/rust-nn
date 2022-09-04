@@ -1,108 +1,212 @@
 pub mod loss;
 pub mod activation;
 pub mod errors;
-pub mod layer;
-pub mod weights;
 pub mod network;
+pub mod weights;
 pub mod loader;
+pub mod utils;
+
+use {rand::Rng, rand::distributions::Alphanumeric};
 
 use crate::{
-    layer::Layer,
+    network::Network,
     activation::ActivationType,
-    loader::read_from_file,
 };
 
-fn main() -> Result<(), Box<dyn std::error::Error>>  {
+pub struct GenResult {
+    name: String,
+    value: Vec<f64>
+}
 
-    let records = read_from_file("Iris.csv")?; // classification
+fn rand_name() -> String {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(7)
+        .map(char::from)
+        .collect()
+}
 
-    let values = records.iter().map(|r| r.as_slice()[1..r.len() - 1].to_vec()).collect::<Vec<Vec<f64>>>();
-    let answers = records.iter().map(|r| vec![r[r.len() - 1]] ).collect::<Vec<Vec<f64>>>();
+fn create_generation(
+    n: usize,
+    n_inp: usize,
+    n_hidden: usize,
+    out_dim: usize,
+    activation: ActivationType,
+    out_activation: ActivationType
+) -> Vec<Network> {
+    let mut networks = Vec::new();
 
-    let mut layer1 = Layer::new(values[0].len(), 7, 1, ActivationType::Sigmoid, ActivationType::Sigmoid);
+    (0..n).for_each(|i| {
+        networks.push(Network::new(format!("net_{}", i) , n_inp, n_hidden, out_dim, activation, out_activation));
+    });
 
-    println!("n_inp: {}", values[0].len());
-    println!("n_out: {}", answers[0].len());
+    networks
+}
 
-    let train_len = ((values.len() as f64 / 100.0) * 85.0).round() as usize;
-    let test_len = ((values.len()as f64 / 100.0) * 15.0) as usize;
+fn fitness(net: Network, input: Vec<f64>, target: Vec<f64>) -> f64 {
+    let net_out = net.layer_output(input);
+    let sum: f64 = target.to_owned().into_iter().enumerate().map(|(i, y)| {
+        (y - net_out[i]).powf(2.0)
+    }).sum();
+    sum / target.len() as f64
+}
 
-    println!("train len: {}\ntest len: {}", train_len, test_len);
+fn selection(generation: Vec<Network>, input: Vec<f64>, target: Vec<f64>, delta: f64) -> Vec<Network> {
+    let fintess_mean = (generation.to_owned().into_iter().map(|net| {
+        fitness(net, input.to_owned(), target.to_owned())
+    }).sum::<f64>()) / generation.len() as f64;
 
-    let train_data = values.to_owned().as_slice()[0..train_len].to_vec();
-    let train_answers = answers.to_owned().as_slice()[0..train_len].to_vec();
+    let new_generation = generation.to_owned().into_iter().filter(|net| {
+        return fitness(net.to_owned(), input.to_owned(), target.to_owned()) - fintess_mean >= delta
+    }).collect();
 
-    let test_data = values.to_owned().as_slice()[0..test_len].to_vec();
-    let test_answers = answers.to_owned().as_slice()[0..test_len].to_vec();
+    new_generation
+}
 
-    // TRAIN WITH BATCH SIZE
-    // for e in 0..15000 {
-    //     let mut error_sum = 0.0;     
-    //     let answers_chunks: Vec<Vec<Vec<f64>>> = train_answers.chunks(16).map(|chunk| chunk.to_vec().to_vec()).collect();
-    //     train_data.chunks(64).enumerate().for_each(|(i, data)| {
-    //         let out = layer1.train_layer(
-    //             data.to_vec().to_owned(),
-    //             &answers_chunks[i],
-    //             0.0003
-    //         );
-    //         error_sum += out.error;
-    //     });
-    //     println!("{}: error: {}", e, error_sum / 16.0);
-    // }
+fn crossing_over(generation: Vec<Network>) -> Vec<Network> {
+    let mut new_generation = Vec::new();
 
-    // TRAIN WITHOUT BATCH SIZE
-    for e in 0..1000 {
-        use std::thread;
+    (0..generation.len() / 2).into_iter().for_each(|_| {
+        let rpid1 = rand::thread_rng().gen_range(0..generation.len());
+        let rpid2 = rand::thread_rng().gen_range(0..generation.len());
 
-        let mut layer_clone1 = layer1.clone();
-        let mut layer_clone2 = layer1.clone();
+        let parent1 = generation.get(rpid1).unwrap();
+        let parent2 = generation.get(rpid2).unwrap();
 
-        let values_clone1 = values.to_owned().as_slice()[0..(values.len() / 2) - 1].to_vec();
-        let values_clone2 = values.to_owned().as_slice()[((values.len() / 2) - 1)..values.len() - 1].to_vec();
-
-        let answers_clone1 = answers.to_owned().as_slice()[0..(values.len() / 2) - 1].to_vec();
-        let answers_clone2 = answers.to_owned().as_slice()[((values.len() / 2) - 1)..answers.len() - 1].to_vec();
-
-        println!("{}", e);
-
-        thread::spawn(move || { 
-            let out = layer_clone1.train_layer(
-                values_clone1.to_owned(),
-                &answers_clone1,
-                0.0001
-            );
-            println!("Thead #1 err: {}", out.error);
-        });
-
-        thread::spawn(move || {
-            let out = layer_clone2.train_layer(
-                values_clone2.to_owned(),
-                &answers_clone2,
-                0.0001
-            );
-            println!("Thead #2 err: {}", out.error);
-        });
-    
-    
-        let mut preds = Vec::new();
-        for data in &train_data {
-            let out = layer1.layer_output(data.to_owned());
-            preds.push(out);
-        }
-
+        let random_split = rand::thread_rng().gen_range(0..parent1.to_owned().weights.len() - 1);
         
-        // println!("{}: error: {}", e, out.error);
-    }
+        let child1_genes_part_1 = parent1.weights.to_owned().as_slice()[0..random_split].to_vec();
+        let child1_genes_part_2 = parent2.weights.to_owned().as_slice()[random_split..parent2.weights.len()].to_vec();
+        let child1_ws = [&child1_genes_part_1[..], &child1_genes_part_2[..],].concat();
+        
+        let child1 = Network::from_flatten(
+            child1_ws, 
+            rand_name(), 
+            parent1.in_weights.len(), 
+            parent1.n_hidden, 
+            parent1.out_weights.len() / parent1.n_hidden, 
+            parent1.activation,
+            parent1.out_activation
+        );
 
-    let mut right_count = 0;
-    for i in 0..test_len {
-        let out = ActivationType::step(layer1.layer_output(test_data[i].to_owned())[0]);
-        if test_answers[i][0] == out {
-            right_count += 1;
+        let child2_genes_part_1 = parent2.weights.to_owned().as_slice()[0..random_split].to_vec();
+        let child2_genes_part_2 = parent1.weights.to_owned().as_slice()[random_split..parent1.weights.len()].to_vec();
+        let child2_ws = [&child2_genes_part_1[..], &child2_genes_part_2[..],].concat();
+
+        let child2 = Network::from_flatten(
+            child2_ws, 
+            rand_name(),
+            parent1.in_weights.len(), 
+            parent1.n_hidden, 
+            parent1.out_weights.len() / parent1.n_hidden, 
+            parent1.activation,
+            parent1.out_activation
+        );
+
+        new_generation.push(child1);
+        new_generation.push(child2);
+    });
+
+    new_generation
+}
+
+fn mutation(generation: Vec<Network>, p: f64) -> Vec<Network> {
+    let mut new_generation = Vec::new();
+
+    generation.to_owned().into_iter().for_each(|net| {
+        let mut new_net = net.to_owned();
+        if rand::thread_rng().gen_range(0..=10) as f64 / 10.0 <= p {
+            let mut new_ws = net.weights.to_owned();
+            let rw_id = rand::thread_rng().gen_range(0..net.weights.len());
+            
+            new_ws[rw_id] = weights::Weight {
+              value: new_ws[rw_id].value + rand::thread_rng().gen_range(-100000..=100000) as f64 / 100000.0,
+              name: new_ws[rw_id].name.to_owned()
+            };
+          new_net.weights = new_ws;
+        } 
+
+        new_generation.push(new_net);
+    });
+
+    new_generation
+}
+
+fn choise_best(generation: Vec<Network>, inps: Vec<f64>, target: Vec<f64>) -> Network {
+    let mut min = 1000000000000.0;
+    let mut min_idx = generation.len() - 1;
+    for i in 0..generation.len() {
+        let f = fitness(generation[i].to_owned(), inps.to_owned(), target.to_owned());
+        if f < min {
+            min = f;
+            min_idx = i;
         }
     }
+
+    return generation[min_idx].to_owned();
+}
+
+
+fn main() -> Result<(), Box<dyn std::error::Error>>  {
+    let mut generation = create_generation(5000, 4, 10, 1, ActivationType::ReLU, ActivationType::ReLU);
+
+    let main_input = (0..4).map(|_| { rand::thread_rng().gen_range(0..=1000) as f64 / 1000.0 } ).collect::<Vec<f64>>();
+
+    let target_ws: Vec<weights::Weight> = (0..generation[0].weights.len()).map(|_| weights::Weight::random_weight("name".to_string())).collect();
     
-    println!("accuracy no batches: {}/{}", right_count, test_len);
-    println!("\n");
+    let target_value = rand::thread_rng().gen_range(0..=1000) as f64 / 1000.0 + rand::thread_rng().gen_range(0..=1000) as f64 / 1000.0;
+
+    println!("targer ws: {:?}", target_ws.to_owned().iter().map(|w| w.value).collect::<Vec<f64>>());
+    println!("\ntarget result: {}", target_value);
+    let mut best_net = generation[0].to_owned();
+
+    //// MAIN LOOP
+    let mut i = 2;
+    let mut first_len = generation.to_owned().len();
+
+    while i <= generation.to_owned().len() / 2 {
+      let mut bests = Vec::new();
+      
+      while bests.len() != first_len / i {
+        generation = selection(generation.to_owned(), main_input.to_owned(), vec![target_value], 0.01);
+        generation = crossing_over(generation.to_owned());
+        generation = mutation(generation.to_owned(), 0.7);
+        
+        let fintess_mean = (generation.to_owned().into_iter().map(|net| {
+            fitness(net, main_input.to_owned(), vec![target_value].to_owned())
+        }).sum::<f64>()) / generation.len() as f64;
+        if fintess_mean.is_nan() {
+            let r_generation = create_generation(10, 4, 10, 1, ActivationType::ReLU, ActivationType::ReLU);
+            generation.extend(r_generation);
+        }
+
+        let best_net_loc = choise_best(generation.to_owned(), main_input.to_owned(), vec![target_value]);
+        bests.push(best_net_loc.to_owned());
+
+        generation = generation.into_iter().filter(|n| n.name != best_net_loc.name).collect();
+      }
+
+      generation = bests.to_owned();
+
+      first_len = bests.to_owned().len();      
+    
+      let best_net_loc = choise_best(generation.to_owned(), main_input.to_owned(), vec![target_value]);
+      println!("{:?}", best_net_loc.layer_output(main_input.to_owned()));
+    
+      if (best_net_loc.layer_output(main_input.to_owned())[0] - target_value).abs() < 0.01 {
+          println!("{} - break", (best_net_loc.layer_output(main_input.to_owned())[0] - target_value).abs());
+          best_net = best_net_loc;
+          break;
+      }
+      if (best_net_loc.layer_output(main_input.to_owned())[0] - target_value).abs() < 0.1 {
+        println!("{}", (best_net_loc.layer_output(main_input.to_owned())[0] - target_value).abs());
+        i += 2;
+      }
+    }
+    println!("end: {}", i);
+
+    println!("best net output: {:?}", best_net.layer_output(main_input.to_owned()));
+    println!("expected output: {:?}", target_value);
+
     Ok(())
 }
