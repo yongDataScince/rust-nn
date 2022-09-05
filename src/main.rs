@@ -35,63 +35,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>>  {
     let test_data = values.to_owned().as_slice()[0..test_len].to_vec();
     let test_answers = answers.to_owned().as_slice()[0..test_len].to_vec();
 
-    // TRAIN WITH BATCH SIZE
-    // for e in 0..15000 {
-    //     let mut error_sum = 0.0;     
-    //     let answers_chunks: Vec<Vec<Vec<f64>>> = train_answers.chunks(16).map(|chunk| chunk.to_vec().to_vec()).collect();
-    //     train_data.chunks(64).enumerate().for_each(|(i, data)| {
-    //         let out = layer1.train_layer(
-    //             data.to_vec().to_owned(),
-    //             &answers_chunks[i],
-    //             0.0003
-    //         );
-    //         error_sum += out.error;
-    //     });
-    //     println!("{}: error: {}", e, error_sum / 16.0);
-    // }
-
-    // TRAIN WITHOUT BATCH SIZE
     for e in 0..1000 {
-        use std::thread;
 
-        let mut layer_clone1 = layer1.clone();
-        let mut layer_clone2 = layer1.clone();
-
-        let values_clone1 = values.to_owned().as_slice()[0..(values.len() / 2) - 1].to_vec();
-        let values_clone2 = values.to_owned().as_slice()[((values.len() / 2) - 1)..values.len() - 1].to_vec();
-
-        let answers_clone1 = answers.to_owned().as_slice()[0..(values.len() / 2) - 1].to_vec();
-        let answers_clone2 = answers.to_owned().as_slice()[((values.len() / 2) - 1)..answers.len() - 1].to_vec();
-
-        println!("{}", e);
-
-        thread::spawn(move || { 
-            let out = layer_clone1.train_layer(
-                values_clone1.to_owned(),
-                &answers_clone1,
-                0.0001
-            );
-            println!("Thead #1 err: {}", out.error);
-        });
-
-        thread::spawn(move || {
-            let out = layer_clone2.train_layer(
-                values_clone2.to_owned(),
-                &answers_clone2,
-                0.0001
-            );
-            println!("Thead #2 err: {}", out.error);
-        });
-    
-    
-        let mut preds = Vec::new();
-        for data in &train_data {
-            let out = layer1.layer_output(data.to_owned());
-            preds.push(out);
-        }
-
-        
-        // println!("{}: error: {}", e, out.error);
+        let out = layer1.train_layer(
+            values.to_owned(),
+            &answers,
+            0.0001
+        );
+        println!("Thead #1 err: {}", out.error);
     }
 
     let mut right_count = 0;
