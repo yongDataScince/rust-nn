@@ -108,7 +108,6 @@ pub fn cross_entropy_loss(
       activation,
       out_activation
     );
-    println!("{:?}", nn_out);
 
     let mean: f64 = (x_trues[i].to_owned().into_iter().enumerate().map(|(i, v)| {
       v * (nn_out[i]).log2() + (1.0 - v) * (1.0 - nn_out[i]).log2()
