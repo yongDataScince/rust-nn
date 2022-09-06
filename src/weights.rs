@@ -1,6 +1,7 @@
 use rand::*;
+use serde::{ Deserialize, Serialize };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Weight {
   pub value: f64,
   pub name: String,
