@@ -61,27 +61,32 @@ pub fn partial_diff_loss(
   let new_in_w: Vec<Weight> = all_weights.to_owned().into_iter().filter(|w| in_weights.contains(w)).collect();
   let new_hid_w: Vec<Weight> = all_weights.to_owned().into_iter().filter(|w| hidden_weights.contains(w)).collect();
   let new_out_w: Vec<Weight> = all_weights.to_owned().into_iter().filter(|w| out_weights.contains(w)).collect();
-  ( f(
-      nn,
-      &new_in_w,
-      &new_hid_w,
-      &new_out_w,
-      data_inp,
-      x_trues,
-      n_hidden,
-      activation,
-      out_activation
-    ) - f(
-      nn,
-      in_weights,
-      hidden_weights,
-      out_weights,
-      data_inp,
-      x_trues,
-      n_hidden,
-      activation,
-      out_activation
-    )) / eps
+
+  let fh = f(
+    nn,
+    &new_in_w,
+    &new_hid_w,
+    &new_out_w,
+    data_inp,
+    x_trues,
+    n_hidden,
+    activation,
+    out_activation
+  );
+
+  let fo = f(
+    nn,
+    in_weights,
+    hidden_weights,
+    out_weights,
+    data_inp,
+    x_trues,
+    n_hidden,
+    activation,
+    out_activation
+  );
+
+  (fh - fo) / eps
 }
 
 pub fn cross_entropy_loss(

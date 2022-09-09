@@ -209,64 +209,61 @@ impl Layer {
     }
   }
 
-  pub fn train_layer(&mut self, values: Vec<Vec<f64>>, answers: &Vec<Vec<f64>>, lr: f64) -> Out {
-    let mut trained: Vec<Weight> = Vec::new();
-
-    while trained.len() < self.weights.len() {
-      let ri = rand::thread_rng().gen_range(0..self.weights.to_owned().len());
-      if !trained.contains(&self.weights[ri].to_owned()) {
-        let s: f64 = self.weights.to_owned().into_par_iter().map(|w| {
-          partial_diff_loss(
-            &cross_entropy_loss,
-            &Layer::call,
-            &self.weights,
-            &self.in_weights,
-            &self.hidden_weights,
-            &self.out_weights,
-            self.activation,
-            self.n_hidden,
-            self.out_activation,
-            &values,
-            &answers,
-            w.name.to_owned(),
-            0.0001
-          ).powf(2.0)
-        }).sum();
-        let curr_lr = lr / (1e-8 + s.sqrt());
-
-        self.weights[ri] = Weight {
-          value: self.weights[ri].value - curr_lr * partial_diff_loss(
-            &cross_entropy_loss,
-            &Layer::call,
-            &self.weights,
-            &self.in_weights,
-            &self.hidden_weights,
-            &self.out_weights,
-            self.activation,
-            self.n_hidden,
-            self.out_activation,
-            &values,
-            &answers,
-            self.weights[ri].name.to_owned(),
-            0.0001
-          ),
-          name: self.weights[ri].name.to_owned()
-        };
-        match self.in_weights.par_iter().position_first(|w| w.name == self.weights[ri].name) {
-            Some(id) => { self.in_weights[id] = self.weights[ri].to_owned() },
-            None => (),
-        };
-        match self.hidden_weights.par_iter().position_first(|w| w.name == self.weights[ri].name) {
-          Some(id) => { self.hidden_weights[id] = self.weights[ri].to_owned() },
+  pub fn train_layer(&mut self, values: Vec<Vec<f64>>, answers: &Vec<Vec<f64>>, lr: f64, b: f64) -> Out {
+    let mut i = 0;
+    while i < self.weights.len() {
+      let g = partial_diff_loss(
+        &cross_entropy_loss,
+        &Layer::call,
+        &self.weights,
+        &self.in_weights,
+        &self.hidden_weights,
+        &self.out_weights,
+        self.activation,
+        self.n_hidden,
+        self.out_activation,
+        &values,
+        &answers,
+        self.weights[i].name.to_owned(),
+        0.00005
+      );
+      self.weights[i] = Weight {
+        value: self.weights[i].value - lr * g,
+        name: self.weights[i].name.to_owned()
+      };
+      match self.in_weights.par_iter().position_first(|w| w.name == self.weights[i].name) {
+          Some(id) => { self.in_weights[id] = self.weights[i].to_owned() },
           None => (),
-        };
-        match self.out_weights.par_iter().position_first(|w| w.name == self.weights[ri].name) {
-          Some(id) => { self.out_weights[id] = self.weights[ri].to_owned() },
-          None => (),
-        };
-
-        trained.push(self.weights[ri].to_owned());
-      }
+      };
+      match self.hidden_weights.par_iter().position_first(|w| w.name == self.weights[i].name) {
+        Some(id) => { self.hidden_weights[id] = self.weights[i].to_owned() },
+        None => (),
+      };
+      match self.out_weights.par_iter().position_first(|w| w.name == self.weights[i].name) {
+        Some(id) => { self.out_weights[id] = self.weights[i].to_owned() },
+        None => (),
+      };
+      i += 1;
+      // if !trained.contains(&self.weights[i].to_owned()) {
+        // let s: f64 = self.weights.to_owned().into_par_iter().map(|w| {
+        //   partial_diff_loss(
+        //     &cross_entropy_loss,
+        //     &Layer::call,
+        //     &self.weights,
+        //     &self.in_weights,
+        //     &self.hidden_weights,
+        //     &self.out_weights,
+        //     self.activation,
+        //     self.n_hidden,
+        //     self.out_activation,
+        //     &values,
+        //     &answers,
+        //     w.name.to_owned(),
+        //     0.0001
+        //   ).powf(2.0)
+        // }).sum();
+        // let curr_lr = lr / (1e-8 + s.sqrt());
+      // }
     }
     let error = cross_entropy_loss(
       &Layer::call,
