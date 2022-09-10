@@ -1,140 +1,197 @@
-use rand::Rng;
-use sdl2::Sdl;
-use sdl2::pixels::{Color, PixelFormatEnum};
-use sdl2::rect::{Point, Rect};
-use sdl2::render::WindowCanvas;
-use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
-use std::time::Duration;
+use crate::generative::{crossing_over, mutation};
+use crate::{
+    network::Network,
+    activation::ActivationType,
+};
+use crate::utils::argmax;
+use macroquad::prelude::*;
+use std::collections::LinkedList;
 
-use crate::network::Network;
+type Point = (i16, i16);
 
-pub struct Agent {
-  pub brain: Network,
-  pub color: Color,
-  pub position: Point,
-  pub rect: Rect,
+fn create_generation(
+  n: usize,
+  n_inp: usize,
+  n_hidden: usize,
+  out_dim: usize,
+  activation: ActivationType,
+  out_activation: ActivationType
+) -> Vec<Network> {
+  let mut networks = Vec::new();
+
+  (0..n).for_each(|i| {
+      networks.push(Network::new(format!("net_{}", i) , n_inp, n_hidden, out_dim, activation, out_activation));
+  });
+
+  networks
+}
+
+#[derive(Clone, Debug)]
+pub struct Snake {
+  pub head: Point,
+  pub body: LinkedList<Point>,
+  pub dir: Point,
+    pub brain: Network,
+    pub score: f64,
+    pub speed: f64,
+    pub min_dist: f64,
+    pub game_over: bool
 }
 
 pub struct Enviroment {
-  pub width: usize,
-  pub bg_color: Color,
-  pub height: usize,
-  pub canvas: WindowCanvas,
-  pub context: Sdl,
-  pub agents: Vec<Agent>
+  pub agents: Vec<Snake>,
+  pub squares: usize,
 }
 
 impl Enviroment {
-  pub fn new(width: usize, height: usize, bg_color: Color, generation: Vec<Network>, agent_width: usize, agent_height: usize) -> Enviroment {
-    let context = sdl2::init().unwrap();
-    let video_subsystem = context.video().unwrap();
-
-    let window = video_subsystem.window("enviroment", width as u32, height as u32)
-        .position_centered()
-        .build()
-        .expect("could not initialize video subsystem");
-
-    let canvas = window.into_canvas().build()
-        .expect("could not make a canvas");
-
-    let agents = generation.into_iter().map(|net| {
-      let pos_x = rand::thread_rng().gen_range(-20..20) as i32;
-      let pos_y = rand::thread_rng().gen_range(-20..20) as i32;
-      let rect = Rect::new(pos_x, pos_y, agent_width as u32, agent_height as u32);
-  
-      return Agent {
+  pub fn new(squares: usize, n: usize) -> Enviroment {
+    let init_generatin = create_generation(n, 4, 16, 4, ActivationType::ReLU, ActivationType::Softmax);
+    let agents = init_generatin.to_owned().into_iter().map(|net| {
+      Snake {
+        speed: 0.3,
+        head: (0, 0),
+        body: LinkedList::new(),
+        dir: (1, 0),
+        min_dist: 10000.0,
         brain: net,
-        rect: rect,
-        position: Point::new(
-          pos_x, 
-          pos_y,
-        ),
-        color: Color::RGB(
-          rand::thread_rng().gen_range(0..=255), 
-          rand::thread_rng().gen_range(0..=255),
-          rand::thread_rng().gen_range(0..=255))
-        }
+        score: 0.0,
+        game_over: false
+      }
     }).collect();
-
-    Enviroment {
-      width,
-      agents,
-      bg_color,
-      context,
-      height,
-      canvas
-    }
+    Enviroment { agents, squares }
   }
 
-  fn render(&mut self) {
-    self.canvas.set_draw_color(self.bg_color);
-    self.canvas.clear();
+  pub async fn run(&mut self) {
+    let up = (0, -1);
+    let down = (0, 1);
+    let right = (1, 0);
+    let left = (-1, 0);
+    let mut fruit: Point = (rand::gen_range(0, self.squares as i16), rand::gen_range(0, self.squares as i16));
+    let mut new_agents: Vec<Snake> = Vec::new();
 
-    let texture_creator = self.canvas.texture_creator();
+    for ep in 0..100 {
+      for snake in self.agents.iter() {
+        let mut new_snake = snake.to_owned();
+        let mut j = 0;
+        loop {
+          let inps = vec![
+            (snake.head.0 as f64) / self.squares as f64 * 0.1,
+            (snake.head.1 as f64) / self.squares as f64 * 0.1,
+            (fruit.0 as f64) / self.squares as f64 * 0.1,
+            (fruit.1 as f64) / self.squares as f64 * 0.1
+          ];
 
-    self.agents.iter().for_each(|agent| {
-      let screen_position = agent.position + Point::new(self.width as i32 / 2, self.height as i32 / 2);
-      let screen_rect = Rect::from_center(screen_position, agent.rect.width(), agent.rect.height());
+          let out = argmax(&snake.brain.layer_output(inps.to_owned()).to_vec());
 
-      let texture = texture_creator.create_texture(
-        PixelFormatEnum::ABGR1555,
-        sdl2::render::TextureAccess::Target,
-        agent.rect.width(),
-        agent.rect.height()
-      ).unwrap();
-
-      self.canvas.copy(&texture, agent.rect, screen_rect).expect("error to copy");
-    });
-
-    self.canvas.present();
-  }
-
-  pub fn run(&mut self) {
-    let mut event_pump = self.context.event_pump().unwrap();
-    let mut i = 0;
-  
-    'running: loop {
-        // Handle events
-        for event in event_pump.poll_iter() {
-          match event {
-            Event::Quit {..} |
-            Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
-                break 'running;
-            },
-            Event::KeyDown { keycode: Some(Keycode::Left), .. } => {
-              self.agents[0].position = self.agents[0].position.offset(-2, 0);
-            },
-            Event::KeyDown { keycode: Some(Keycode::Right), .. } => {
-              self.agents[0].position = self.agents[0].position.offset(2, 0);
-            },
-            Event::KeyDown { keycode: Some(Keycode::Up), .. } => {
-              self.agents[0].position = self.agents[0].position.offset(0, -2);
-            },
-            Event::KeyDown { keycode: Some(Keycode::Down), .. } => {
-              self.agents[0].position = self.agents[0].position.offset(0, 2);
-            },
-            _ => {}
+          let curr_dir = match out {
+            2 => right,
+            3 => left,
+            0 => up,
+            1 => down,
+            _ => (0, 0)
+          };
+          new_snake.dir = curr_dir;
+    
+          new_snake.body.push_front(new_snake.head);
+          new_snake.head = (new_snake.head.0 + new_snake.dir.0, new_snake.head.1 + new_snake.dir.1);
+          let curr_dist: f64 = (((new_snake.head.0 - fruit.0).abs().pow(2) + (new_snake.head.1 - fruit.1).abs().pow(2)) as f64).sqrt();
+          
+          if curr_dist < new_snake.min_dist {
+            new_snake.min_dist = curr_dist;
           }
-          println!("pos1: {:?}", self.agents[0].position);
+          if new_snake.head == fruit {
+              new_snake.score += 0.1;
+              new_snake.speed *= 1.0;
+              break;
+          } else {
+            new_snake.body.pop_back();
+          }
+          if new_snake.head.0 < 0
+              || new_snake.head.1 < 0
+              || new_snake.head.0 >= self.squares as i16
+              || new_snake.head.1 >= self.squares as i16
+          {
+              new_snake.game_over = true;
+              new_snake.score -= 1.0;
+          }
+          for (x, y) in &new_snake.body {
+              if *x == new_snake.head.0 && *y == new_snake.head.1 {
+                new_snake.game_over = true;
+              }
+          }
+          if new_snake.game_over {
+            break;
+          }
+    
+          clear_background(LIGHTGRAY);
+    
+          let game_size = screen_width().min(screen_height());
+          let offset_x = (screen_width() - game_size) / 2. + 10.;
+          let offset_y = (screen_height() - game_size) / 2. + 10.;
+          let sq_size = (screen_height() - offset_y * 2.) / self.squares as f32;
+      
+          draw_rectangle(offset_x, offset_y, game_size - 20., game_size - 20., WHITE);
+      
+          for i in 1..self.squares {
+              draw_line(
+                  offset_x,
+                  offset_y + sq_size * i as f32,
+                  screen_width() - offset_x,
+                  offset_y + sq_size * i as f32,
+                  2.,
+                  LIGHTGRAY,
+              );
+          }
+      
+          for i in 1..self.squares {
+              draw_line(
+                  offset_x + sq_size * i as f32,
+                  offset_y,
+                  offset_x + sq_size * i as f32,
+                  screen_height() - offset_y,
+                  2.,
+                  LIGHTGRAY,
+              );
+          }
+    
+          draw_rectangle(
+              offset_x + new_snake.head.0 as f32 * sq_size,
+              offset_y + new_snake.head.1 as f32 * sq_size,
+              sq_size,
+              sq_size,
+              DARKGREEN,
+          );
+    
+          for (x, y) in &new_snake.body {
+              draw_rectangle(
+                  offset_x + *x as f32 * sq_size,
+                  offset_y + *y as f32 * sq_size,
+                  sq_size,
+                  sq_size,
+                  LIME,
+              );
+          }
+    
+          draw_rectangle(
+              offset_x + fruit.0 as f32 * sq_size,
+              offset_y + fruit.1 as f32 * sq_size,
+              sq_size,
+              sq_size,
+              GOLD,
+          );
+          next_frame().await;
+          j += 1;
+          if j == 128 {
+            break;
+          }
         }
+        fruit = (rand::gen_range(0, self.squares as i16), rand::gen_range(0, self.squares as i16));
+        new_agents.push(new_snake);
+      }
 
-        // Update
-        i = (i + 1) % 255;
-
-        // Render
-        self.render();
-
-        // Time management!
-        std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
+      let selected_agents: Vec<Snake> = new_agents.to_owned().into_iter().filter(|ag| ag.score > 0.0).collect();
+      let cross_overed_agents = crossing_over(selected_agents.to_owned());
+      let mutated = mutation(cross_overed_agents.to_owned(), 0.4);
     }
   }
-  // pub fn render(&mut self) {
-  //   self.canvas.set_draw_color(self.color);
-  //   self.canvas.clear();
-  //   self.canvas.present();
-  // }
 }
-
-
-

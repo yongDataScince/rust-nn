@@ -6,163 +6,20 @@ pub mod weights;
 pub mod loader;
 pub mod utils;
 pub mod stand;
+pub mod generative;
 
-use {rand::Rng, rand::distributions::Alphanumeric};
-use sdl2::pixels::Color;
-use stand::Enviroment;
 
-use crate::{
-    network::Network,
-    activation::ActivationType,
-};
+use crate::stand::Enviroment;
 
 pub struct GenResult {
     name: String,
     value: Vec<f64>
 }
 
-fn rand_name() -> String {
-    rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(7)
-        .map(char::from)
-        .collect()
-}
-
-fn create_generation(
-    n: usize,
-    n_inp: usize,
-    n_hidden: usize,
-    out_dim: usize,
-    activation: ActivationType,
-    out_activation: ActivationType
-) -> Vec<Network> {
-    let mut networks = Vec::new();
-
-    (0..n).for_each(|i| {
-        networks.push(Network::new(format!("net_{}", i) , n_inp, n_hidden, out_dim, activation, out_activation));
-    });
-
-    networks
-}
-
-fn fitness(net: Network, input: Vec<f64>, target: Vec<f64>) -> f64 {
-    let net_out = net.layer_output(input);
-    let sum: f64 = target.to_owned().into_iter().enumerate().map(|(i, y)| {
-        (y - net_out[i]).powf(2.0)
-    }).sum();
-    sum / target.len() as f64
-}
-
-fn selection(generation: Vec<Network>, input: Vec<f64>, target: Vec<f64>, delta: f64) -> Vec<Network> {
-    let fintess_mean = (generation.to_owned().into_iter().map(|net| {
-        fitness(net, input.to_owned(), target.to_owned())
-    }).sum::<f64>()) / generation.len() as f64;
-
-    let new_generation = generation.to_owned().into_iter().filter(|net| {
-        return fitness(net.to_owned(), input.to_owned(), target.to_owned()) - fintess_mean >= delta
-    }).collect();
-
-    new_generation
-}
-
-fn crossing_over(generation: Vec<Network>) -> Vec<Network> {
-    let mut new_generation = Vec::new();
-
-    (0..generation.len() / 2).into_iter().for_each(|_| {
-        let rpid1 = rand::thread_rng().gen_range(0..generation.len());
-        let rpid2 = rand::thread_rng().gen_range(0..generation.len());
-
-        let parent1 = generation.get(rpid1).unwrap();
-        let parent2 = generation.get(rpid2).unwrap();
-
-        let random_split = rand::thread_rng().gen_range(0..parent1.to_owned().weights.len() - 1);
-        
-        let child1_genes_part_1 = parent1.weights.to_owned().as_slice()[0..random_split].to_vec();
-        let child1_genes_part_2 = parent2.weights.to_owned().as_slice()[random_split..parent2.weights.len()].to_vec();
-        let child1_ws = [&child1_genes_part_1[..], &child1_genes_part_2[..],].concat();
-        
-        let child1 = Network::from_flatten(
-            child1_ws, 
-            rand_name(), 
-            parent1.in_weights.len(), 
-            parent1.n_hidden, 
-            parent1.out_weights.len() / parent1.n_hidden, 
-            parent1.activation,
-            parent1.out_activation
-        );
-
-        let child2_genes_part_1 = parent2.weights.to_owned().as_slice()[0..random_split].to_vec();
-        let child2_genes_part_2 = parent1.weights.to_owned().as_slice()[random_split..parent1.weights.len()].to_vec();
-        let child2_ws = [&child2_genes_part_1[..], &child2_genes_part_2[..],].concat();
-
-        let child2 = Network::from_flatten(
-            child2_ws, 
-            rand_name(),
-            parent1.in_weights.len(), 
-            parent1.n_hidden, 
-            parent1.out_weights.len() / parent1.n_hidden, 
-            parent1.activation,
-            parent1.out_activation
-        );
-
-        new_generation.push(child1);
-        new_generation.push(child2);
-    });
-
-    new_generation
-}
-
-fn mutation(generation: Vec<Network>, p: f64) -> Vec<Network> {
-    let mut new_generation = Vec::new();
-
-    generation.to_owned().into_iter().for_each(|net| {
-        let mut new_net = net.to_owned();
-        if rand::thread_rng().gen_range(0..=10) as f64 / 10.0 <= p {
-            let mut new_ws = net.weights.to_owned();
-            let rw_id = rand::thread_rng().gen_range(0..net.weights.len());
-            
-            new_ws[rw_id] = weights::Weight {
-              value: new_ws[rw_id].value + rand::thread_rng().gen_range(-100000..=100000) as f64 / 100000.0,
-              name: new_ws[rw_id].name.to_owned()
-            };
-          new_net.weights = new_ws;
-        } 
-
-        new_generation.push(new_net);
-    });
-
-    new_generation
-}
-
-fn choise_best(generation: Vec<Network>, inps: Vec<f64>, target: Vec<f64>) -> Network {
-    let mut min = 1000000000000.0;
-    let mut min_idx = generation.len() - 1;
-    for i in 0..generation.len() {
-        let f = fitness(generation[i].to_owned(), inps.to_owned(), target.to_owned());
-        if f < min {
-            min = f;
-            min_idx = i;
-        }
-    }
-
-    return generation[min_idx].to_owned();
-}
-
-
-fn main() -> Result<(), Box<dyn std::error::Error>>  {
-    let mut generation = create_generation(50, 4, 10, 1, ActivationType::ReLU, ActivationType::ReLU);
-
-    let mut env = Enviroment::new(
-        600,
-        400,
-        Color::RGB(255, 255, 255),
-        generation,
-        10,
-        10
-    );
-
-    env.run();
+#[macroquad::main("Snake")]
+async fn main() -> Result<(), Box<dyn std::error::Error>>  {
+    let mut envir = Enviroment::new(32, 20);
+    envir.run().await;
 
     // let main_input = (0..4).map(|_| { rand::thread_rng().gen_range(0..=1000) as f64 / 1000.0 } ).collect::<Vec<f64>>();
 

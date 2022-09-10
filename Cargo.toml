@@ -11,5 +11,5 @@ csv = "1.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.85"
 plotters = "0.3"
-sdl2 = "0.32.1"
+macroquad = "0.3"
 rayon="1.5.3"

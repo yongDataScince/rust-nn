@@ -1,6 +1,25 @@
-pub fn argmax(inp: Vec<f64>) -> f64 {
-  inp.iter()
-    .enumerate()
-    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-    .map(|(index, _)| index).unwrap() as f64
+use rand::Rng;
+
+pub fn argmax<T: Copy + PartialOrd>(u: &[T]) -> usize {
+  assert!(u.len() != 0);
+
+  let mut max_index = 0;
+  let mut max = u[max_index];
+
+  for (i, v) in (u.iter()).enumerate() {
+      if max < *v {
+          max_index = i;
+          max = *v;
+      }
+  }
+
+  max_index
+}
+
+pub fn rand_name() -> String {
+  rand::thread_rng()
+      .sample_iter(&rand::distributions::Alphanumeric)
+      .take(7)
+      .map(char::from)
+      .collect()
 }

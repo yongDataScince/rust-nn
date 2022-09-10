@@ -18,7 +18,7 @@ impl Weight {
       let xavier_noise_lower = -(1.0 / 10.0_f64.powf(1.0 / 10.0));
       let xavier_noise_apper = 1.0 / 10.0_f64.powf(1.0 / 10.0);
 
-      let rand = xavier_noise_lower + (thread_rng().gen_range(0..=11000) as f64 / 10000.0) * (xavier_noise_apper - xavier_noise_lower);
+      let rand = xavier_noise_lower + (thread_rng().gen_range(-10000..=11000) as f64 / 10000.0) * (xavier_noise_apper - xavier_noise_lower);
 
       Weight { name, value: rand }
     }
