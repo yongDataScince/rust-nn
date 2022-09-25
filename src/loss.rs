@@ -1,5 +1,9 @@
-use crate::{weights::Weight, activation::ActivationType};
+use std::time::Instant;
+
 use rayon::prelude::*;
+
+use crate::{weights::Weight, activation::ActivationType, network::Network};
+// use rayon::prelude::*;
 
 pub fn diff_loss(
   f: &dyn Fn(
@@ -20,101 +24,40 @@ pub fn diff_loss(
 }
 
 pub fn partial_diff_loss(
-  f: &dyn Fn(
-    &dyn Fn(&Vec<Weight>, &Vec<Weight>, &Vec<Weight>, &Vec<f64>, usize, ActivationType, ActivationType) -> Vec<f64>,
-    &Vec<Weight>,
-    &Vec<Weight>,
-    &Vec<Weight>,
+  loss: &dyn Fn(
+    &Network,
     &Vec<Vec<f64>>,
     &Vec<Vec<f64>>,
-    usize,
-    ActivationType,
-    ActivationType,
   ) -> f64,
-  nn: &dyn Fn(&Vec<Weight>, &Vec<Weight>, &Vec<Weight>, &Vec<f64>, usize, ActivationType, ActivationType) -> Vec<f64>,
-  all_weights: &Vec<Weight>, 
-  in_weights: &Vec<Weight>,
-  hidden_weights: &Vec<Weight>,
-  out_weights: &Vec<Weight>,
-  activation: ActivationType,
-  n_hidden: usize,
-  out_activation: ActivationType,
+  w_name: String,
+  nn: &Network,
   data_inp: &Vec<Vec<f64>>,
   x_trues: &Vec<Vec<f64>>,
-  var_name: String,
-  eps: f64
+  eps: f64,
 ) -> f64 {
-  let all_weights: Vec<Weight> = all_weights.to_owned().par_iter().map(|w| {
-    if w.name == var_name {
-      return Weight {
-        value: w.value + eps,
-        name: var_name.to_owned()
-      };
-    } else {
-      return Weight {
-        name: w.name.to_owned(),
-        value: w.value
-      };
-    }
-  }).collect();
+  let mut new_nn = nn.to_owned();
+  
+  new_nn.layers.to_owned().into_iter().for_each(|layer| {
+    new_nn.change_wi(layer.name.to_owned(), w_name.to_owned(), eps)
+  });
 
-  let new_in_w: Vec<Weight> = all_weights.to_owned().into_iter().filter(|w| in_weights.contains(w)).collect();
-  let new_hid_w: Vec<Weight> = all_weights.to_owned().into_iter().filter(|w| hidden_weights.contains(w)).collect();
-  let new_out_w: Vec<Weight> = all_weights.to_owned().into_iter().filter(|w| out_weights.contains(w)).collect();
-
-  let fh = f(
-    nn,
-    &new_in_w,
-    &new_hid_w,
-    &new_out_w,
-    data_inp,
-    x_trues,
-    n_hidden,
-    activation,
-    out_activation
-  );
-
-  let fo = f(
-    nn,
-    in_weights,
-    hidden_weights,
-    out_weights,
-    data_inp,
-    x_trues,
-    n_hidden,
-    activation,
-    out_activation
-  );
-
+  let fh = loss(&new_nn, data_inp, x_trues);
+  let fo = loss(nn, data_inp, x_trues);
+  
   (fh - fo) / eps
 }
 
 pub fn cross_entropy_loss(
-  nn: &dyn Fn(&Vec<Weight>, &Vec<Weight>, &Vec<Weight>, &Vec<f64>, usize, ActivationType, ActivationType) -> Vec<f64>,
-  in_weights: &Vec<Weight>,
-  hidden_weights: &Vec<Weight>,
-  out_weights: &Vec<Weight>,
+  nn: &Network,
   data_inp: &Vec<Vec<f64>>,
   x_trues: &Vec<Vec<f64>>,
-  n_hidden: usize,
-  activation: ActivationType,
-  out_activation: ActivationType,
 ) -> f64 {
   let mut sum = 0.0;
 
   for i in 0..x_trues.len() {
-    let nn_out = nn(
-      in_weights,
-      hidden_weights,
-      out_weights,
-      &data_inp[i],
-      n_hidden,
-      activation,
-      out_activation
-    );
-
-    let mean: f64 = (x_trues[i].to_owned().into_iter().enumerate().map(|(i, v)| {
-      v * (nn_out[i]).log2() + (1.0 - v) * (1.0 - nn_out[i]).log2()
+    let nn_out = nn.output(&data_inp[i]);
+    let mean: f64 = (x_trues[i].to_owned().into_iter().enumerate().map(|(j, v)| {
+      v * (nn_out[j]).log2() + (1.0 - v) * (1.0 - nn_out[j]).log2()
     })).sum::<f64>() / x_trues[i].len() as f64;
 
     sum += mean;
@@ -122,38 +65,38 @@ pub fn cross_entropy_loss(
   -sum / x_trues.len() as f64
 }
 
-pub fn loss_mse(
-  nn: &dyn Fn(&Vec<Weight>, &Vec<Weight>, &Vec<Weight>, &Vec<f64>, usize, ActivationType, ActivationType) -> Vec<f64>,
-  in_weights: &Vec<Weight>,
-  hidden_weights: &Vec<Weight>,
-  out_weights: &Vec<Weight>,
+pub fn binary_cross_entropy_loss(
+  nn: &Network,
   data_inp: &Vec<Vec<f64>>,
   x_trues: &Vec<Vec<f64>>,
-  n_hidden: usize,
-  activation: ActivationType,
-  out_activation: ActivationType,
 ) -> f64 {
 
-  let mut sum: f64 = 0.0;
-  for i in 0..x_trues.len() {
-    let nn_out = nn(
-      in_weights,
-      hidden_weights,
-      out_weights,
-      &data_inp[i],
-      n_hidden,
-      activation,
-      out_activation
-    );
+  let sum = x_trues.to_owned().into_par_iter().enumerate().map(|(i, x_true)| {
+    let nn_out = nn.output(&data_inp[i]);
 
-    if nn_out.len() == 1 {
-      sum += (x_trues[i][0] - nn_out[0]).powf(2.0); 
-    } else {
-      sum += nn_out.iter().enumerate().map(|(j, out)| {
-        (x_trues[i][j] - out).powf(2.0)
-      }).sum::<f64>() / nn_out.len() as f64;
-    }
+    (x_true[0] * nn_out[0].log2()) + ((1.0 - x_true[0]) * (1.0 - nn_out[0]).log2())
+  }).sum::<f64>();
+
+  -sum / x_trues.len() as f64
+}
+
+pub fn loss_mse(
+  nn: &Network,
+  data_inp: &Vec<Vec<f64>>,
+  x_trues: &Vec<Vec<f64>>,
+) -> f64 {
+  let mut sum = 0.0;
+
+  for i in 0..x_trues.len() {
+    let nn_out = nn.output(&data_inp[i]);
+
+    let mean: f64 = (x_trues[i].to_owned().into_iter().enumerate().map(|(i, v)| {
+      // println!("{} - {v}", nn_out[i]);
+      (nn_out[i] - v).powf(2.0)
+    })).sum::<f64>() / x_trues[i].len() as f64;
+
+    sum += mean;
   }
 
-  sum / (x_trues.len() as f64)
+  sum / x_trues.len() as f64
 }

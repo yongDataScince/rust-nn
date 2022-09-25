@@ -1,5 +1,5 @@
 use serde::{ Deserialize, Serialize };
-
+use rayon::prelude::*;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Deserialize, Serialize)]
 pub enum ActivationType {
@@ -31,8 +31,8 @@ impl ActivationType {
     }
   }
 
-  pub fn softmax(y: &Vec<f64>) -> Vec<f64> { 
-    let sum: f64 = y.into_iter().map(|yi| {
+  pub fn softmax(y: &Vec<f64>) -> Vec<f64> {
+    let sum: f64 = y.into_par_iter().map(|yi| {
       return 2.71828_f64.powf(*yi); 
     }).sum();
 

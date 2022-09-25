@@ -1,5 +1,4 @@
 /target
-/images
-/layers
 
+*.png
 # *.csv
