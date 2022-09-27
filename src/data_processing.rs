@@ -3,13 +3,13 @@ use plotters::prelude::*;
 use rand::seq::SliceRandom;
 use rayon::prelude::*;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Col {
   pub name: String,
   pub values: Vec<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Row {
   pub values: HashMap<String, String>,
 }
@@ -68,11 +68,11 @@ impl Series {
     })
   }
 
-  pub fn scale_by(&mut self, col_name: &str, value: f64) {
+  pub fn scale_by(&mut self, col_name: &str, value: f32) {
     let curr_col = self.cols.get(col_name).expect("Column does not exist");
 
     let new_vals: Vec<String> = curr_col.values.to_owned().into_iter().enumerate().map(|(id, v)| {
-      let parsed_res = v.parse::<f64>();
+      let parsed_res = v.parse::<f32>();
       if let Ok(par_val) = parsed_res {
         
         self.rows.entry(id as u64).and_modify(|r| {
@@ -97,7 +97,7 @@ impl Series {
     let curr_col = self.cols.get(col_name).expect("Column does not exist");
     
     let max_value = curr_col.values.to_owned().iter().map(|v| {
-      let parsed_res = v.parse::<f64>();
+      let parsed_res = v.parse::<f32>();
       if let Ok(par_val) = parsed_res {
         par_val
       } else {
@@ -108,7 +108,7 @@ impl Series {
     (0..self.rows.len()).for_each(|id| {
       self.rows.entry(id as u64).and_modify(|row| {
         row.values.entry(col_name.to_owned()).and_modify(|col_val| {
-          let parsed_res = col_val.to_owned().parse::<f64>().unwrap();
+          let parsed_res = col_val.to_owned().parse::<f32>().unwrap();
 
           *col_val = (parsed_res / max_value).to_string();
         });
@@ -116,7 +116,7 @@ impl Series {
     });
 
     let new_vals: Vec<String> = curr_col.values.to_owned().into_par_iter().map(|v| {
-      let parsed_res = v.parse::<f64>().unwrap();
+      let parsed_res = v.parse::<f32>().unwrap();
       return (parsed_res / max_value).to_string();
     }).collect();
   
@@ -157,48 +157,48 @@ impl Series {
     droped_col.to_owned()
   }
 
-  pub fn to_vecs(&self) -> Vec<Vec<f64>> {
+  pub fn to_vecs(&self) -> Vec<Vec<f32>> {
     (0..self.rows.len()).map(|id| {
       let row = &self.rows.get(&(id as u64)).unwrap();
-      let values: Vec<f64> = self.headers.iter().map(|header| row.values.get(header).unwrap().parse::<f64>().expect("Error to parse value")).collect();
+      let values: Vec<f32> = self.headers.iter().map(|header| row.values.get(header).unwrap().parse::<f32>().expect("Error to parse value")).collect();
 
       values
     }).collect()
   }
 
-  pub fn batchise(data: Vec<Vec<f64>>, batch_size: usize) -> Vec<Vec<Vec<f64>>> {
+  pub fn batchise(data: Vec<Vec<f32>>, batch_size: usize) -> Vec<Vec<Vec<f32>>> {
     data.chunks(batch_size).map(|chunk| chunk.to_vec()).collect()
   }
 
-  pub fn max_by(&self, col_name: &str) -> f64 {
-    self.cols.get(col_name).unwrap().values.iter().map(|val| val.parse::<f64>().unwrap()).max_by(|a, b| a.total_cmp(b)).unwrap()
+  pub fn max_by(&self, col_name: &str) -> f32 {
+    self.cols.get(col_name).unwrap().values.iter().map(|val| val.parse::<f32>().unwrap()).max_by(|a, b| a.total_cmp(b)).unwrap()
   }
 
-  pub fn min_by(&self, col_name: &str) -> f64 {
-    self.cols.get(col_name).unwrap().values.iter().map(|val| val.parse::<f64>().unwrap()).min_by(|a, b| a.total_cmp(b)).unwrap()
+  pub fn min_by(&self, col_name: &str) -> f32 {
+    self.cols.get(col_name).unwrap().values.iter().map(|val| val.parse::<f32>().unwrap()).min_by(|a, b| a.total_cmp(b)).unwrap()
   }
 
-  pub fn mean_by(&self, col_name: &str) -> f64 {
-    self.cols.get(col_name).unwrap().values.iter().map(|val| val.parse::<f64>().unwrap()).sum::<f64>() / self.cols.get(col_name).unwrap().values.len() as f64
+  pub fn mean_by(&self, col_name: &str) -> f32 {
+    self.cols.get(col_name).unwrap().values.iter().map(|val| val.parse::<f32>().unwrap()).sum::<f32>() / self.cols.get(col_name).unwrap().values.len() as f32
   }
 
-  pub fn std_by(&self, col_name: &str) -> f64 {
+  pub fn std_by(&self, col_name: &str) -> f32 {
     let mean = self.mean_by(col_name);
 
-    let sum: f64 = self.cols.get(col_name).unwrap().values.iter().map(|val| {
-      let x = val.parse::<f64>().unwrap();
+    let sum: f32 = self.cols.get(col_name).unwrap().values.iter().map(|val| {
+      let x = val.parse::<f32>().unwrap();
       
       (x - mean).powf(2.0)
     }).sum();
 
-    (sum / self.cols.get(col_name).unwrap().values.len() as f64).sqrt()
+    (sum / self.cols.get(col_name).unwrap().values.len() as f32).sqrt()
   }
 
-  pub fn sub_by(&mut self, col_name: &str, value: f64) {
+  pub fn sub_by(&mut self, col_name: &str, value: f32) {
     let curr_col = self.cols.get(col_name).expect("Column does not exist");
 
     let new_vals: Vec<String> = curr_col.values.to_owned().into_iter().enumerate().map(|(id, v)| {
-      let parsed_res = v.parse::<f64>();
+      let parsed_res = v.parse::<f32>();
       if let Ok(par_val) = parsed_res {
         
         self.rows.entry(id as u64).and_modify(|r| {
@@ -222,7 +222,7 @@ impl Series {
   pub fn draw_col(&self, col_name: &str) {
     let img_name = &format!("graphs/{col_name}.png");
 
-    let vals: Vec<f64> = self.cols.get(col_name).unwrap().values.to_owned().into_iter().map(|val| val.parse().unwrap()).collect();
+    let vals: Vec<f32> = self.cols.get(col_name).unwrap().values.to_owned().into_iter().map(|val| val.parse().unwrap()).collect();
     
     let root_area = BitMapBackend::new(img_name, (1200, 600)).into_drawing_area();
     
@@ -232,7 +232,7 @@ impl Series {
       .set_label_area_size(LabelAreaPosition::Left, 40)
       .set_label_area_size(LabelAreaPosition::Bottom, 40)
       .caption("Loss", ("sans-serif", 40))
-      .build_cartesian_2d(-0..(vals.len() + 20) as i32, -2.0..10.0)
+      .build_cartesian_2d(-0..(vals.len() + 20) as i32, -2.0..10.0f32)
       .unwrap();
       
       ctx.configure_mesh().draw().unwrap();
@@ -240,7 +240,7 @@ impl Series {
       let series_err = LineSeries::new(
         vals.iter().enumerate().map(|(i, v)| {
           return (i as i32, *v);
-        }).collect::<Vec<(i32, f64)>>(),
+        }).collect::<Vec<(i32, f32)>>(),
         &RED
       );
 
