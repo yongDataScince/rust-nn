@@ -1,13 +1,13 @@
+use std::{collections::HashMap, time::Instant};
 #[warn(unused_imports)]
-use std::collections::HashMap;
-use std::{fmt::{self, Display}, time::{Instant, Duration}};
+use std::{fmt::{self, Display}, time::Duration};
 use rand::{distributions::Alphanumeric, Rng};
 use rayon::prelude::*;
 use serde::{ Deserialize, Serialize };
 use crate::{
   activation::ActivationType,
-  weights::{Weight, Bias},
-  loss::{partial_diff_loss, binary_cross_entropy_loss},
+  weights::Weight,
+  loss::partial_diff_loss,
 };
 
 fn random_name() -> String {
@@ -24,9 +24,7 @@ pub struct Layer {
   pub n_input: usize,
   pub n_output: usize,
   pub local_weights: Vec<Weight>,
-  pub local_bias: Bias,
-  pub activation: ActivationType,
-  pub drop_down: f32,
+  pub activation: ActivationType
 }
 
 impl Display for Layer {
@@ -36,69 +34,37 @@ impl Display for Layer {
 }
 
 impl Layer {
-  pub fn output(self, inputs: Vec<f32>, drop_en: bool) -> Vec<f32> {
+  pub fn output(self, inputs: Vec<f64>) -> Vec<f64> {
     use ActivationType::*;
-    let original_output: Vec<f32> = (0..self.n_output * self.n_input).map(|i| {
-      inputs.iter().map(|inp| {
-        self.local_weights[i].value * inp
-      }).sum::<f32>() + self.local_bias.value
-    })
-    .collect();
+    let original_output: Vec<f64> = inputs.to_owned().into_par_iter().map(|inp| {
+      self.local_weights.to_owned().into_par_iter().map(|w| {
+        w.value * inp
+      }).sum::<f64>()
+    }).collect();
 
-    let original_output = original_output.chunks(self.n_input).map(|chuck| {
-      chuck.to_vec().iter().sum::<f32>()
-    }).collect::<Vec<f32>>();
-    
     match self.activation {
       Step => original_output.to_owned().into_par_iter().map(|v| if v > 0.5 { 1.0 } else { 0.0 }).collect(),
-      Sigmoid => original_output.to_owned().into_par_iter().map(|v| {
-        if ((rand::thread_rng().gen_range(0..1000) as f32 / 1000.0) > self.drop_down) || !drop_en {
-          ActivationType::sigmoid(v)
-        } else {
-          return  0.0;
-        }
-      }).collect(),
-      Tanh => original_output.to_owned().into_par_iter().map(|v| {
-        if ((rand::thread_rng().gen_range(0..1000) as f32 / 1000.0) > self.drop_down) || !drop_en {
-          ActivationType::tanh(v)
-        } else {
-          return  0.0;
-        }
-      }).collect(),
-      ReLU => original_output.to_owned().into_par_iter().map(|v|  {
-        if ((rand::thread_rng().gen_range(0..1000) as f32 / 1000.0) > self.drop_down) || !drop_en {
-          if v >= 0.0 { v } else { 0.0 }
-        } else {
-          return  0.0;
-        }
-      }).collect(),
-      Softmax => {
-        ActivationType::softmax(&original_output).into_iter().map(|v| {
-          if ((rand::thread_rng().gen_range(0..1000) as f32 / 1000.0) > self.drop_down) || !drop_en {
-            return v;
-          }
-          return 0.0;
-        }).collect()
-      },
-      No => return original_output
+      Sigmoid => original_output.to_owned().into_par_iter().map(|v| ActivationType::sigmoid(v)).collect(),
+      Tanh => original_output.to_owned().into_par_iter().map(|v| ActivationType::tanh(v)).collect(),
+      ReLU => original_output.to_owned().into_par_iter().map(|v|  if v >= 0.0 { v } else { 0.0 }).collect(),
+      Softmax => ActivationType::softmax(&original_output)
     }
   }
 }
 
 #[derive(Debug)]
 pub struct Out {
-  pub error: f32,
+  pub error: f64,
   pub weights: Vec<Weight>
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Network {
   pub weights: Vec<Weight>,
-  pub biases: Vec<Bias>,
   pub layers: Vec<Layer>,
-  vd: HashMap<String, f32>,
-  sd: HashMap<String, f32>,
-  grads: Vec<f32>
+  vd: HashMap<String, f64>,
+  sd: HashMap<String, f64>,
+  grads: Vec<f64>
 }
 
 impl fmt::Display for Network {
@@ -109,16 +75,15 @@ impl fmt::Display for Network {
 
 impl Network {
   pub fn new(
-    layers_info: Vec<(String, usize, usize, ActivationType, f32)>,
+    layers_info: Vec<(String, usize, usize, ActivationType)>,
   ) -> Network {
     let mut weights: Vec<Weight> = Vec::new();
-    let mut biases: Vec<Bias> = Vec::new();
     
     let mut vd = HashMap::new();
     let mut sd = HashMap::new();
     let mut grads = Vec::new();
 
-    let layers: Vec<Layer> = layers_info.to_owned().into_iter().enumerate().map(|(i, (name, n_input, n_output, activation, drop))| {
+    let layers: Vec<Layer> = layers_info.to_owned().into_iter().enumerate().map(|(i, (name, n_input, n_output, activation))| {
       let mut local_weights: Vec<Weight> = Vec::new();
       for _ in 0..(n_input * n_output) {
         let w = Weight::random_weight(random_name());
@@ -128,35 +93,19 @@ impl Network {
         local_weights.push(w.to_owned());
       }
       weights = weights.to_owned().into_iter().map(|w| {
-        let new_val = w.to_owned().value * ((i as f32).sqrt() / (local_weights.len() as f32).sqrt());
+        let new_val = w.to_owned().value * ((i as f64).sqrt() / (local_weights.len() as f64).sqrt());
         Weight {
           value: new_val,
           name: w.name.to_owned()
         }
       }).collect();
-      let local_bias = Bias::random_bias(random_name());
-      
-      biases.push(local_bias.to_owned());
-      vd.insert(local_bias.name.to_owned(), 0.0);
-      sd.insert(local_bias.name.to_owned(), 0.0);
-      
-      return Layer {
-        name,
-        n_input,
-        n_output,
-        local_weights,
-        activation,
-        drop_down: drop,
-        local_bias
-      }
+      return Layer { name, n_input, n_output, local_weights, activation }
     }).collect();
 
     (0..weights.len()).for_each(|_| grads.push(0.0));
-    (weights.len()..(weights.len() + biases.len())).for_each(|_| grads.push(0.0));
 
     Network {
       weights,
-      biases,
       layers,
       vd,
       sd,
@@ -164,7 +113,7 @@ impl Network {
     }
   }
   
-  pub fn change_wi(&mut self, name_l: String, name_w: String, sub_value: f32) {
+  pub fn change_wi(&mut self, name_l: String, name_w: String, sub_value: f64) {
     let (layer_id, mut curr_layer) = self.layers.to_owned().into_par_iter().enumerate().find_any(|(_, layer)| layer.name == name_l.to_owned()).unwrap();
     let (w_id, mut curr_w) = self.weights.to_owned().into_par_iter().enumerate().find_any(|(_, w)| w.name == name_w.to_owned()).unwrap();
 
@@ -187,20 +136,10 @@ impl Network {
     self.weights[w_id] = curr_w;
   }
 
-  pub fn change_bi(&mut self, name_l: String, bias_name: String, sub_value: f32) {
-    let (layer_id, mut curr_layer) = self.layers.to_owned().into_par_iter().enumerate().find_any(|(_, layer)| layer.name == name_l.to_owned()).unwrap();
-    if curr_layer.local_bias.name == bias_name {
-      curr_layer.local_bias.value -= sub_value;
-    }
-
-    self.layers[layer_id] = curr_layer.to_owned();
-    self.biases[layer_id] = curr_layer.local_bias;
-  }
-
-  pub fn output(&self, vals: &Vec<f32>, drop_en: bool) -> Vec<f32> {
+  pub fn output(&self, vals: &Vec<f64>) -> Vec<f64> {
     let mut inp = vals.to_owned();
     for layer in self.layers.iter() {
-      let new_inp = layer.to_owned().output(inp.to_owned(), drop_en);
+      let new_inp = layer.to_owned().output(inp.to_owned());
       inp = new_inp;
     }
     inp
@@ -209,15 +148,12 @@ impl Network {
     &mut self,
     loss: &dyn Fn(
       &Network,
-      &Vec<Vec<f32>>,
-      &Vec<Vec<f32>>,
-      bool
-    ) -> f32,
-    values: Vec<Vec<f32>>,
-    answers: &Vec<Vec<f32>>,
-    lr: f32,
-    sigma: f32,
-    drop_en: bool
+      &Vec<Vec<f64>>,
+      &Vec<Vec<f64>>,
+    ) -> f64,
+    values: Vec<Vec<f64>>,
+    answers: &Vec<Vec<f64>>,
+    lr: f64,
   ) -> Out {
     let betta = 0.9;
     let gamma = 0.999;
@@ -246,17 +182,7 @@ impl Network {
       // println!("sub_val: {} / {} = {}\n", lr * mt, (vt.sqrt() + 1e-7), lr * mt / (vt.sqrt() + 1e-7));
       let sub_val = lr * mt / (vt.sqrt() + 1e-7);
 
-      let g = partial_diff_loss(
-        &loss, 
-        self.weights[i].name.to_owned(), 
-        &self, 
-        &values, 
-        answers, 
-        1e-4,
-        sigma,
-        drop_en,
-        false,
-      );
+      let g = partial_diff_loss(loss, self.weights[i].name.to_owned(), &self, &values, answers, 1e-7);
 
       self.layers.to_owned().iter().for_each(|layer| {
         self.change_wi(layer.name.to_owned(), self.weights[i].name.to_owned(), -sub_val)
@@ -265,30 +191,7 @@ impl Network {
       self.grads[i] = g;
       i += 1;
     }
-
-    let mut i = 0;
-    while i < self.biases.len() {
-      let g = partial_diff_loss(
-        &loss, 
-        self.biases[i].name.to_owned(), 
-        &self, 
-        &values, 
-        answers,
-        1e-4,
-        sigma,
-        drop_en,
-        true
-      );
-
-      self.layers.to_owned().iter().for_each(|layer| {
-        self.change_bi(layer.name.to_owned(), self.biases[i].name.to_owned(), -(g * lr))
-      });
-
-      self.grads[i + self.weights.len()] = g;
-      i += 1;
-    }
-
-    let error = loss(&self, &values[0..values.len()].to_vec(), &answers[0..values.len()].to_vec(), drop_en);
+    let error = loss(&self, &values[0..values.len()].to_vec(), &answers[0..values.len()].to_vec());
     Out {
       error,
       weights: self.weights.to_owned(),

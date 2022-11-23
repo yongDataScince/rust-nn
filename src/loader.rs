@@ -1,4 +1,4 @@
-pub fn read_from_file(path: &str) -> Result<Vec<Vec<f32>>, Box<dyn std::error::Error>> {
+pub fn read_from_file(path: &str) -> Result<Vec<Vec<f64>>, Box<dyn std::error::Error>> {
   let mut reader = csv::Reader::from_path(path)?;
 
   let mut records = Vec::new();
@@ -7,7 +7,7 @@ pub fn read_from_file(path: &str) -> Result<Vec<Vec<f32>>, Box<dyn std::error::E
   // println!("{:?}", headers);
 
   for res in reader.deserialize() {
-    let rec: Vec<f32> = res?;
+    let rec: Vec<f64> = res?;
     records.push(rec)
   }
 
