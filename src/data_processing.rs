@@ -22,7 +22,7 @@ pub struct Series  {
 }
 
 impl Series {
-  pub fn from_csv(path: String, shuffle: bool) ->  Result<Series, Box<dyn std::error::Error>> {
+  pub fn from_csv(path: &str, shuffle: bool) ->  Result<Series, Box<dyn std::error::Error>> {
     let mut reader = csv::Reader::from_path(path)?;
 
     let mut cols: HashMap<String, Col> = HashMap::new();
@@ -125,7 +125,7 @@ impl Series {
     });
   }
 
-  pub fn replace_with(&mut self, col_name: &str, old_vals: Vec<&str>, new_vals: Vec<&str>) {
+  pub fn replace_with(&mut self, col_name: &str, old_vals: Vec<String>, new_vals: Vec<String>) {
     let col = self.cols.get_mut(col_name).unwrap();
 
     old_vals.to_owned().into_iter().enumerate().for_each(|(i, old)| {

@@ -1,12 +1,11 @@
 use std::{collections::HashMap, time::Instant};
 #[warn(unused_imports)]
-use std::{fmt::{self, Display}, time::Duration};
-use rand::{distributions::Alphanumeric, Rng};
+use std::fmt::{self, Display};
+use rand::{distributions::Alphanumeric, Rng, thread_rng};
 use rayon::prelude::*;
 use serde::{ Deserialize, Serialize };
 use crate::{
   activation::ActivationType,
-  weights::Weight,
   loss::partial_diff_loss,
 };
 
@@ -23,7 +22,7 @@ pub struct Layer {
   pub name: String,
   pub n_input: usize,
   pub n_output: usize,
-  pub local_weights: Vec<Weight>,
+  pub local_weights: HashMap<String, f64>,
   pub activation: ActivationType
 }
 
@@ -34,11 +33,11 @@ impl Display for Layer {
 }
 
 impl Layer {
-  pub fn output(self, inputs: Vec<f64>) -> Vec<f64> {
+  pub fn output(&self, inputs: Vec<f64>) -> Vec<f64> {
     use ActivationType::*;
-    let original_output: Vec<f64> = inputs.to_owned().into_par_iter().map(|inp| {
-      self.local_weights.to_owned().into_par_iter().map(|w| {
-        w.value * inp
+    let original_output: Vec<f64> = self.local_weights.values().collect::<Vec<&f64>>().chunks(self.n_input).map(|chunk| {
+      inputs.clone().into_iter().enumerate().map(|(i, w)| {
+        chunk[i] * w
       }).sum::<f64>()
     }).collect();
 
@@ -55,16 +54,16 @@ impl Layer {
 #[derive(Debug)]
 pub struct Out {
   pub error: f64,
-  pub weights: Vec<Weight>
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Network {
-  pub weights: Vec<Weight>,
-  pub layers: Vec<Layer>,
+  pub weights: HashMap<String, HashMap<String, f64>>,
+  pub layers: HashMap<String, Layer>,
+  pub layer_names: Vec<String>,
   vd: HashMap<String, f64>,
   sd: HashMap<String, f64>,
-  grads: Vec<f64>
+  grads: Vec<Vec<f64>>
 }
 
 impl fmt::Display for Network {
@@ -75,75 +74,80 @@ impl fmt::Display for Network {
 
 impl Network {
   pub fn new(
-    layers_info: Vec<(String, usize, usize, ActivationType)>,
+    layers_info: Vec<(&str, usize, usize, ActivationType)>,
   ) -> Network {
-    let mut weights: Vec<Weight> = Vec::new();
-    
+    let mut weights: HashMap<String, HashMap<String, f64>> = HashMap::new();
+    let mut layers = HashMap::new();
     let mut vd = HashMap::new();
     let mut sd = HashMap::new();
     let mut grads = Vec::new();
+    let mut layer_names = Vec::new();
 
-    let layers: Vec<Layer> = layers_info.to_owned().into_iter().enumerate().map(|(i, (name, n_input, n_output, activation))| {
-      let mut local_weights: Vec<Weight> = Vec::new();
+    layers_info.to_owned().into_iter().for_each(|(layer_name, n_input, n_output, activation)| {
+      layer_names.push(layer_name.to_string());
+      let mut local_weights = HashMap::new();
+      let mut curr_grads = Vec::new();
       for _ in 0..(n_input * n_output) {
-        let w = Weight::random_weight(random_name());
-        weights.push(w.to_owned());
-        vd.insert(w.name.to_owned(), 0.0);
-        sd.insert(w.name.to_owned(), 0.0);
-        local_weights.push(w.to_owned());
+          let name = random_name();
+          let value = thread_rng().gen_range(-10000..=10000) as f64 / 10000.0;
+          local_weights.insert(name.to_owned(), value);
+          vd.insert(name.to_owned(), 0.0);
+          sd.insert(name.to_owned(), 0.0);
+          local_weights.insert(name.to_owned(), value); 
+          curr_grads.push(0.0);
       }
-      weights = weights.to_owned().into_iter().map(|w| {
-        let new_val = w.to_owned().value * ((i as f64).sqrt() / (local_weights.len() as f64).sqrt());
-        Weight {
-          value: new_val,
-          name: w.name.to_owned()
-        }
-      }).collect();
-      return Layer { name, n_input, n_output, local_weights, activation }
-    }).collect();
-
-    (0..weights.len()).for_each(|_| grads.push(0.0));
+      let layer = Layer {
+        name: layer_name.to_owned(),
+        n_input,
+        n_output,
+        local_weights: local_weights.clone(),
+        activation,
+      };
+      layers.insert(layer_name.to_string().clone(), layer);
+      weights.insert(layer_name.to_string(), local_weights);
+      grads.push(curr_grads);
+    });
 
     Network {
-      weights,
-      layers,
-      vd,
-      sd,
-      grads,
+        weights,
+        layers,
+        vd,
+        sd,
+        grads,
+        layer_names,
     }
   }
   
-  pub fn change_wi(&mut self, name_l: String, name_w: String, sub_value: f64) {
-    let (layer_id, mut curr_layer) = self.layers.to_owned().into_par_iter().enumerate().find_any(|(_, layer)| layer.name == name_l.to_owned()).unwrap();
-    let (w_id, mut curr_w) = self.weights.to_owned().into_par_iter().enumerate().find_any(|(_, w)| w.name == name_w.to_owned()).unwrap();
+  pub fn weigth_count(&self) -> usize {
+    self.weights.keys().map(|l| {
+      self.weights.get(l).unwrap().len()
+    }).sum()
+  }
 
-    curr_layer.local_weights = curr_layer.local_weights.into_iter().map(|w| {
-      if w.name == name_w.to_owned() {
-        curr_w = Weight {
-          name: name_w.to_owned(),
-          value: w.value + sub_value.to_owned()
-        };
-        return Weight {
-          name: name_w.to_owned(),
-          value: w.value + sub_value.to_owned()
-        }
-      } else {
-        w
-      }
-    }).collect();
+  pub fn change_wi(&mut self, name_l: &String, name_w: &String, sub_value: f64) {
+    self.weights.entry(name_l.clone()).and_modify(|ws| {
+      ws.entry(name_w.clone()).and_modify(|val| {
+        *val -= sub_value
+      });
+    });
 
-    self.layers[layer_id] = curr_layer;
-    self.weights[w_id] = curr_w;
+    self.layers.entry(name_l.clone()).and_modify(|layer| {
+      layer.local_weights.entry(name_w.clone()).and_modify(|val| {
+        *val -= sub_value;
+      });
+    });
   }
 
   pub fn output(&self, vals: &Vec<f64>) -> Vec<f64> {
     let mut inp = vals.to_owned();
-    for layer in self.layers.iter() {
+    for name in self.layer_names.iter() {
+      let layer = self.layers.get(name).unwrap();
       let new_inp = layer.to_owned().output(inp.to_owned());
       inp = new_inp;
     }
     inp
   }
+
   pub fn train_layer(
     &mut self,
     loss: &dyn Fn(
@@ -157,44 +161,47 @@ impl Network {
   ) -> Out {
     let betta = 0.9;
     let gamma = 0.999;
+    let mut gi = 0;
 
-    let mut i = 0;
-    while i < self.weights.len() {
-      self.vd.entry(self.weights[i].name.to_owned()).and_modify(|val| {
-        *val = (val.to_owned() * betta) + (1.0 - betta) * self.grads[i];
+    for layer_name in &self.layer_names.clone() {
+      let weights = self.weights.get(layer_name).unwrap();
+
+      weights.clone().keys().enumerate().for_each(|(i, key)| {
+        self.vd.entry(key.to_owned()).and_modify(|val| {
+          *val = (val.to_owned() * betta) + (1.0 - betta) * self.grads[gi][i];
+        });
+
+        self.sd.entry(key.to_owned()).and_modify(|val| {
+          *val = (val.to_owned() * gamma) + (1.0 - gamma) * self.grads[gi][i].powf(2.0);
+        });
+
+        let powb = 1.0 - betta.powi((i + 1) as i32);
+        let powg = 1.0 - gamma.powi((i + 1) as i32);
+
+        let mt = self.vd.get(&key.to_owned()).unwrap() / powb;
+        let vt = self.sd.get(&key.to_owned()).unwrap() / powg;
+
+        let sub_val = lr * mt / (vt.sqrt() + 1e-7);
+
+        let start = Instant::now();
+        let g = partial_diff_loss(loss, &layer_name.clone(), &key.to_owned(), &self, &values, answers, 1e-4);
+        let duration = start.elapsed();
+        // println!("  Calculate part. diff: {:?}", duration);
+
+        let start = Instant::now();
+        self.change_wi(layer_name, &key.to_owned(), -sub_val);
+        let duration = start.elapsed();
+        // println!("  Change weight: {:?}", duration);
+
+        self.grads[gi][i] = g;
       });
 
-      self.sd.entry(self.weights[i].name.to_owned()).and_modify(|val| {
-        *val = (val.to_owned() * gamma) + (1.0 - gamma) * self.grads[i].powf(2.0);
-      });
-
-      let powb = 1.0 - betta.powi((i + 1) as i32);
-      let powg = 1.0 - gamma.powi((i + 1) as i32);
-
-      // println!("powb: {powb}");
-      // println!("powg: {powg}");
-
-      let mt = self.vd.get(&self.weights[i].name.to_owned()).unwrap() / powb;
-      let vt = self.sd.get(&self.weights[i].name.to_owned()).unwrap() / powg;
-
-      // println!("mt: {} / {powb} = {}", self.vd.get(&self.weights[i].name.to_owned()).unwrap(), mt);
-      // println!("vt: {} / {powg} = {}", self.sd.get(&self.weights[i].name.to_owned()).unwrap(), vt);
-      // println!("sub_val: {} / {} = {}\n", lr * mt, (vt.sqrt() + 1e-7), lr * mt / (vt.sqrt() + 1e-7));
-      let sub_val = lr * mt / (vt.sqrt() + 1e-7);
-
-      let g = partial_diff_loss(loss, self.weights[i].name.to_owned(), &self, &values, answers, 1e-7);
-
-      self.layers.to_owned().iter().for_each(|layer| {
-        self.change_wi(layer.name.to_owned(), self.weights[i].name.to_owned(), -sub_val)
-      });
-
-      self.grads[i] = g;
-      i += 1;
+      gi += 1;
     }
+    
     let error = loss(&self, &values[0..values.len()].to_vec(), &answers[0..values.len()].to_vec());
     Out {
-      error,
-      weights: self.weights.to_owned(),
+      error
     }
   }
 }

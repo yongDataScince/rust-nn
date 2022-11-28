@@ -1,9 +1,7 @@
 use std::time::Instant;
 
 use rayon::prelude::*;
-
 use crate::{weights::Weight, activation::ActivationType, network::Network};
-// use rayon::prelude::*;
 
 pub fn diff_loss(
   f: &dyn Fn(
@@ -29,19 +27,24 @@ pub fn partial_diff_loss(
     &Vec<Vec<f64>>,
     &Vec<Vec<f64>>,
   ) -> f64,
-  w_name: String,
+  l_name: &String,
+  w_name: &String,
   nn: &Network,
   data_inp: &Vec<Vec<f64>>,
   x_trues: &Vec<Vec<f64>>,
   eps: f64,
 ) -> f64 {
   let mut new_nn = nn.to_owned();
-  
-  new_nn.layers.to_owned().into_iter().for_each(|layer| {
-    new_nn.change_wi(layer.name.to_owned(), w_name.to_owned(), eps)
-  });
 
+  let start = Instant::now();
+  new_nn.change_wi(l_name, w_name, eps);
+  let duration = start.elapsed();
+  // println!("    Change weight in part. diff: {:?}", duration);
+
+  let start = Instant::now();
   let fh = loss(&new_nn, data_inp, x_trues);
+  let duration = start.elapsed();
+  // println!("    Calc fh in part. diff: {:?}", duration);
   let fo = loss(nn, data_inp, x_trues);
   
   (fh - fo) / eps
@@ -80,6 +83,8 @@ pub fn binary_cross_entropy_loss(
   -sum / x_trues.len() as f64
 }
 
+
+
 pub fn loss_mse(
   nn: &Network,
   data_inp: &Vec<Vec<f64>>,
@@ -91,7 +96,6 @@ pub fn loss_mse(
     let nn_out = nn.output(&data_inp[i]);
 
     let mean: f64 = (x_trues[i].to_owned().into_iter().enumerate().map(|(i, v)| {
-      // println!("{} - {v}", nn_out[i]);
       (nn_out[i] - v).powf(2.0)
     })).sum::<f64>() / x_trues[i].len() as f64;
 

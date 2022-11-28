@@ -12,3 +12,7 @@ serde = { version = "1", features = ["derive"] }
 rayon="1.5.3"
 plotters = "0.3"
 serde_json = "1.0.85"
+piston = "0.53.2"
+piston2d-graphics = "0.43.0"
+pistoncore-glutin_window = "0.70.1"
+piston2d-opengl_graphics = "0.82.0"
