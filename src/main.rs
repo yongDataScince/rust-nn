@@ -19,20 +19,15 @@ extern crate graphics;
 extern crate glutin_window;
 extern crate opengl_graphics;
 
-// #[macro_export]
-// macro_rules! check_time {
-//     ( $( $x:expr ),* ) => {
-//         {
-//             let start = Instant::now();
-//             let duration = start.elapsed();
-
-//             println!("time: {}");
-//         }
-//     };
-// }
-
 fn main() -> Result<(), Box<dyn std::error::Error>>  {
-    let batch_size = 16;
+    
+
+    Ok(())
+}
+
+
+/*
+let batch_size = 16;
 
     let mut nn = network::Network::new(vec![
         ("Input", 17, 10, ActivationType::Sigmoid),
@@ -94,6 +89,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>>  {
             }
         }
     }
-
-    Ok(())
-}
+*/
