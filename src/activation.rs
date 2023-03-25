@@ -1,3 +1,4 @@
+use ndarray::{Array, Dim};
 use serde::{ Deserialize, Serialize };
 use rayon::prelude::*;
 
@@ -31,13 +32,15 @@ impl ActivationType {
     }
   }
 
-  pub fn softmax(y: &Vec<f64>) -> Vec<f64> {
-    let sum: f64 = y.into_par_iter().map(|yi| {
-      return 2.71828_f64.powf(*yi); 
-    }).sum();
+  pub fn softmax(y: &Array<f64, Dim<[usize; 2]>>) -> Array<f64, Dim<[usize; 2]>> {
+    let exp = y.mapv(|yi| {
+      2.71828_f64.powf(yi)
+    });    
 
-    y.into_iter().map(|yi| {
-      2.71828_f64.powf(*yi) / sum 
-    }).collect()
+    exp.clone() / exp.sum()
+
+    // y.into_iter().map(|yi| {
+    //   2.71828_f64.powf(*yi) / sum 
+    // }).collect()
   }
 }

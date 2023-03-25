@@ -1,8 +1,9 @@
 use std::{collections::HashMap, time::Instant};
 #[warn(unused_imports)]
 use std::fmt::{self, Display};
+use ndarray::{Array, Dim};
 use rand::{distributions::Alphanumeric, Rng, thread_rng};
-use rayon::prelude::*;
+use ndarray::parallel::prelude::*;
 use serde::{ Deserialize, Serialize };
 use crate::{
   activation::ActivationType,
@@ -33,19 +34,25 @@ impl Display for Layer {
 }
 
 impl Layer {
-  pub fn output(&self, inputs: Vec<f64>) -> Vec<f64> {
+  pub fn output(&self, inputs: Array<f64, Dim<[usize; 2]>>) -> Array<f64, Dim<[usize; 2]>> {
     use ActivationType::*;
-    let original_output: Vec<f64> = self.local_weights.values().collect::<Vec<&f64>>().chunks(self.n_input).map(|chunk| {
-      inputs.clone().into_iter().enumerate().map(|(i, w)| {
-        chunk[i] * w
-      }).sum::<f64>()
-    }).collect();
+
+    let weights: Array<f64, _> = self.local_weights
+      .values()
+      .map(|v| v.clone())
+      .collect::<Vec<f64>>()
+      .into();
+    
+    let weights = weights.into_shared().reshape((self.n_output,  inputs.shape()[1]));
+    
+    let original_output = (weights.dot(&(inputs.t()))).into_owned();
+    let original_output = original_output.t().to_owned();
 
     match self.activation {
-      Step => original_output.to_owned().into_par_iter().map(|v| if v > 0.5 { 1.0 } else { 0.0 }).collect(),
-      Sigmoid => original_output.to_owned().into_par_iter().map(|v| ActivationType::sigmoid(v)).collect(),
-      Tanh => original_output.to_owned().into_par_iter().map(|v| ActivationType::tanh(v)).collect(),
-      ReLU => original_output.to_owned().into_par_iter().map(|v|  if v >= 0.0 { v } else { 0.0 }).collect(),
+      Step => original_output.to_owned().mapv(|v| if v > 0.5 { 1.0 } else { 0.0 }),
+      Sigmoid => original_output.to_owned().mapv(|v| ActivationType::sigmoid(v)),
+      Tanh => original_output.to_owned().mapv(|v| ActivationType::tanh(v)),
+      ReLU => original_output.to_owned().mapv(|v|  if v >= 0.0 { v } else { 0.0 }),
       Softmax => ActivationType::softmax(&original_output)
     }
   }
@@ -89,7 +96,7 @@ impl Network {
       let mut curr_grads = Vec::new();
       for _ in 0..(n_input * n_output) {
           let name = random_name();
-          let value = thread_rng().gen_range(-10000..=10000) as f64 / 10000.0;
+          let value = thread_rng().gen_range(-100000..=100000) as f64 / 250000.0;
           local_weights.insert(name.to_owned(), value);
           vd.insert(name.to_owned(), 0.0);
           sd.insert(name.to_owned(), 0.0);
@@ -109,15 +116,39 @@ impl Network {
     });
 
     Network {
-        weights,
-        layers,
-        vd,
-        sd,
-        grads,
-        layer_names,
+      weights,
+      layers,
+      vd,
+      sd,
+      grads,
+      layer_names,
     }
   }
   
+  pub fn import_ws(&mut self, inp_ws: Vec<(String, String, f64)>) {
+      let mut new_weigths: HashMap<String, HashMap<String, f64>> = HashMap::new();
+      
+      inp_ws.clone().into_iter().for_each(|(name_l, name_w, value)| {
+        new_weigths.entry(name_l)
+          .and_modify(|ws| {
+            ws.insert(name_w.clone(), value);
+          })
+          .or_insert(HashMap::from([(name_w, value)]));
+      });
+
+      self.weights = new_weigths.clone();
+
+      inp_ws.clone().into_iter().for_each(|(name_l, _, _)| {
+          self.layers.entry(name_l.clone()).and_modify(|layer| {
+            let mut new_layer = layer.clone();
+            let local_weigths = new_weigths.get(&name_l).unwrap();
+            new_layer.local_weights = local_weigths.clone();
+            
+            *layer = new_layer;
+          });
+      });
+  }
+
   pub fn weigth_count(&self) -> usize {
     self.weights.keys().map(|l| {
       self.weights.get(l).unwrap().len()
@@ -138,7 +169,7 @@ impl Network {
     });
   }
 
-  pub fn output(&self, vals: &Vec<f64>) -> Vec<f64> {
+  pub fn output(&self, vals: &Array<f64, Dim<[usize; 2]>>) -> Array<f64, Dim<[usize; 2]>> {
     let mut inp = vals.to_owned();
     for name in self.layer_names.iter() {
       let layer = self.layers.get(name).unwrap();
@@ -152,11 +183,11 @@ impl Network {
     &mut self,
     loss: &dyn Fn(
       &Network,
-      &Vec<Vec<f64>>,
-      &Vec<Vec<f64>>,
+      &Array<f64, Dim<[usize; 2]>>,
+      &Array<f64, Dim<[usize; 2]>>,
     ) -> f64,
-    values: Vec<Vec<f64>>,
-    answers: &Vec<Vec<f64>>,
+    values: &Array<f64, Dim<[usize; 2]>>,
+    answers: &Array<f64, Dim<[usize; 2]>>,
     lr: f64,
   ) -> Out {
     let betta = 0.9;
@@ -183,15 +214,9 @@ impl Network {
 
         let sub_val = lr * mt / (vt.sqrt() + 1e-7);
 
-        let start = Instant::now();
         let g = partial_diff_loss(loss, &layer_name.clone(), &key.to_owned(), &self, &values, answers, 1e-4);
-        let duration = start.elapsed();
-        // println!("  Calculate part. diff: {:?}", duration);
 
-        let start = Instant::now();
         self.change_wi(layer_name, &key.to_owned(), -sub_val);
-        let duration = start.elapsed();
-        // println!("  Change weight: {:?}", duration);
 
         self.grads[gi][i] = g;
       });
@@ -199,9 +224,22 @@ impl Network {
       gi += 1;
     }
     
-    let error = loss(&self, &values[0..values.len()].to_vec(), &answers[0..values.len()].to_vec());
+    let error = loss(&self, &values, &answers);
     Out {
       error
     }
+  }
+
+  pub fn weights_to_vec(&self) -> Vec<(String, String, f64)> {
+      let mut out_vec = Vec::new();
+    
+      for layer_name in &self.layer_names {
+          let layer_ws = self.weights.get(layer_name).unwrap();
+          for (name, value) in layer_ws {
+            out_vec.push((layer_name.clone(), name.clone(), *value));
+          }
+      }
+
+      out_vec
   }
 }

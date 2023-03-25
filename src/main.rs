@@ -8,7 +8,12 @@ pub mod loader;
 pub mod data_processing;
 pub mod enviroment;
 
+
 use activation::ActivationType;
+use ndarray::Shape;
+use ndarray::prelude::*;
+use network::Network;
+use rand::Rng;
 
 use crate::data_processing::Series;
 use crate::loss::*;
@@ -19,74 +24,96 @@ extern crate graphics;
 extern crate glutin_window;
 extern crate opengl_graphics;
 
-fn main() -> Result<(), Box<dyn std::error::Error>>  {
-    
+////-- CONSTANTS --/////
 
+const POP_SIZE: usize = 20;
+const MAX_GEN: u32 = 100;
+const P_CROSSOW: f64 = 0.5;
+const P_MUTATION: f64 = 0.15;
+
+////////////////////////
+
+fn all_unique<T>(vals: &Vec<T>) -> bool where T: PartialEq + PartialOrd + Clone {
+    let mut prev_value = vals[0].clone();
+    let mut uniq = true;
+    for i in 1..vals.len() {
+        for j in 1..vals.len() {
+            uniq = prev_value == vals[j];
+        }
+        prev_value = vals[i].clone();
+    }
+
+    uniq
+}
+
+fn toutnament(vals: Vec<f64>, n_leaders: usize, p_len: usize) -> Vec<usize> {
+    let mut out_ids = Vec::new();
+    for _ in 0..p_len {
+        let mut ids = vec![0; n_leaders];
+
+        let mut i = 0;
+        while all_unique::<usize>(&ids)  {
+            ids[i] = rand::thread_rng().gen_range(0..vals.len());
+
+            if i == n_leaders - 1 {
+                i = 0;
+            } else {
+                i += 1;
+            }
+        }
+        let best = ids.clone().into_iter().max_by(|id1, id2| {
+            vals[id1.clone()].partial_cmp(&vals[id2.clone()]).unwrap()
+        }).unwrap();
+
+        out_ids.push(best);
+    }
+
+    out_ids
+}
+
+fn mutate_weigths(ws: &mut Vec<(String, String, f64)>) {
+    *ws = ws.clone().into_iter().map(|w| {
+        let p = rand::thread_rng().gen_range(0.0..=100.0) / 100.0;
+        let mut w = w.clone();
+        if p <= P_MUTATION {
+            let v = rand::thread_rng().gen_range(-50.0..=200.0) / 100.0;
+            w.2 += v;
+        }
+        w
+    }).collect::<Vec<(String, String, f64)>>();
+}
+
+fn crossover(par1: &Network, par2: &Network) -> (Network, Network) {
+
+    let mut ch1 = par1.clone();
+    let mut ch2 = par2.clone();
+
+    let par1_ws = par1.weights_to_vec();
+    let par2_ws = par2.weights_to_vec();
+
+    let rand_id = rand::thread_rng().gen_range(2..par1_ws.len() - 3);
+
+    let mut gen1 = par1_ws[0..rand_id].to_vec().clone();
+    let gen2 = par2_ws[rand_id..par1_ws.len()].to_vec().clone();
+    gen1.extend(gen2);
+    ch1.import_ws(gen1);
+
+    
+    let mut gen2 = par2_ws[0..rand_id].to_vec().clone();
+    let gen1 = par1_ws[rand_id..par1_ws.len()].to_vec().clone();
+    gen2.extend(gen1);
+    ch2.import_ws(gen2);
+
+    (ch1, ch2)
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>>  {
     Ok(())
 }
 
-
 /*
-let batch_size = 16;
-
-    let mut nn = network::Network::new(vec![
-        ("Input", 17, 10, ActivationType::Sigmoid),
-        ("Hod1", 10, 8, ActivationType::ReLU),
-        ("Output", 8, 7, ActivationType::Softmax),
-    ]);
-
-    println!("Weight count: {}", nn.weigth_count());
-    
-    let mut dataset = data_processing::Series::from_csv("./data/Dry_Bean_Dataset.csv", true).unwrap();
-    
-    // Drop IDs
-    dataset.draw_col("Bean ID");
-
-    // Collect classnames
-    let class_names = dataset.unique_in_col("Class").iter().map(|name| name.clone()).collect::<Vec<String>>();
-    
-    // Collect classnames ids
-    let values = dataset.unique_in_col("Class").iter().enumerate().map(|(i, _)| {
-        i.to_string()
-    }).collect::<Vec<String>>();
-
-    // Replace classnames with ids
-    dataset.replace_with("Class", class_names.clone(), values);
-
-    // Ids to Onehot 
-    let answers: Vec<Vec<f64>> = dataset.drop_col("Class").iter().map(|val| {
-        let num = val.parse().unwrap();
-        num_to_onehot(num, class_names.clone().len() as u32)
-    }).collect();
-
-    let answers = Series::batchise(answers, batch_size);
-    
-    dataset.scale_by_max("Area");
-    dataset.scale_by_max("Perimeter");
-    dataset.scale_by_max("MajorAxisLength");
-    dataset.scale_by_max("MinorAxisLength");
-    dataset.scale_by_max("ConvexArea");
-    dataset.scale_by_max("EquivDiameter");
-
-    let data = dataset.to_vecs();
-    let data = Series::batchise(data, batch_size);
-
-    println!("Inp len: {}", data[0][0].len());
-    println!("Out len: {}", answers[0][0].len());
-
-    for epoch in 0..10 {
-        for batch_i in 0..data.len() {
-            let res = nn.train_layer(&binary_cross_entropy_loss, data[batch_i].clone(), &answers[batch_i], 1e-4);
-            println!("epoch: {epoch} batch: {batch_i} error: {}", res.error);
-
-            if batch_i % 5 == 0 {
-                let inp_data = data[batch_i][0].clone();
-                let nn_out = nn.output(&inp_data);
-                let (to, _) = argmax(&answers[batch_i][0].clone());
-                let (no, _) = argmax(&nn_out);
-
-                println!("true: {to}, nn: {no}\nOut vec: {:?}", nn_out);
-            }
-        }
-    }
+def convolve_1d(array, kernel):
+    ks = kernel.shape[0] # shape gives the dimensions of an array, as a tuple
+    final_length = array.shape[0] - ks + 1
+    return numpy.array([(array[i:i+ks]*kernel).sum() for i in range(final_length)])
 */
